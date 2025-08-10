@@ -8,6 +8,7 @@ import (
 // BuildPorts собирает BPF-фильтр по списку портов.
 // []int{80,443} -> "(port 80 or port 443)"
 func BuildPorts(ports []int) string {
+
 	if len(ports) == 0 {
 		return ""
 	}

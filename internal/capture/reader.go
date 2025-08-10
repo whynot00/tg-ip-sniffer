@@ -80,6 +80,7 @@ func (r *NetworkReader) Start(ctx context.Context) {
 				close(r.outCh)
 				return
 			}
+
 			if ipInfo := extractIPInfo(packet); ipInfo != nil {
 				r.outCh <- ipInfo
 			}

@@ -6,13 +6,13 @@ import (
 	"os"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/whynot00/tg-ip-sniffer/internal/capture"
 	"github.com/whynot00/tg-ip-sniffer/internal/netutil"
 	"github.com/whynot00/tg-ip-sniffer/internal/platform"
 	"github.com/whynot00/tg-ip-sniffer/internal/telegram"
 	"github.com/whynot00/tg-ip-sniffer/internal/ui/tui"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 func getenv(key, def string) string {
@@ -63,4 +63,6 @@ func main() {
 
 	// Даем UI успеть завершить вывод (косметика; логика не меняется)
 	time.Sleep(50 * time.Millisecond)
+
+	// time.Sleep(time.Hour)
 }
