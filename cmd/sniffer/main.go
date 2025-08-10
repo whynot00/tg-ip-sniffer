@@ -10,6 +10,7 @@ import (
 
 	"github.com/whynot00/tg-ip-sniffer/internal/capture"
 	"github.com/whynot00/tg-ip-sniffer/internal/netutil"
+	"github.com/whynot00/tg-ip-sniffer/internal/platform"
 	"github.com/whynot00/tg-ip-sniffer/internal/telegram"
 	"github.com/whynot00/tg-ip-sniffer/internal/ui/tui"
 )
@@ -22,9 +23,23 @@ func getenv(key, def string) string {
 }
 
 func main() {
-	// Поведение прежнее: по умолчанию en0 и Telegram.
-	iface := getenv("SNIFFER_IFACE", "en0")
-	appName := getenv("SNIFFER_APP", "Telegram")
+
+	if err := platform.CheckNpcap(); err != nil {
+		fmt.Println("Похоже, на этой машине нет Npcap или он работает некорректно.")
+		fmt.Println("Скачайте и установите Npcap (галочка \"WinPcap API-compatible mode\") по ссылке:")
+		fmt.Println("https://nmap.org/npcap/")
+		fmt.Println()
+		fmt.Println("После установки перезапустите эту программу от имени администратора.")
+		return
+	}
+
+	iface := platform.DefaultInterface()
+	if iface == "" {
+		fmt.Println("Не удалось определить сетевой интерфейс. Укажи его вручную флагом или в коде.")
+		return
+	}
+
+	appName := platform.TelegramProcessName()
 
 	ctx := context.Background()
 
