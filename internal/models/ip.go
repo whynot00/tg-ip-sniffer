@@ -5,9 +5,12 @@ import (
 	"time"
 )
 
+// IPRaw описывает минимальную информацию об IP-пакете,
+// полученную на этапе захвата и до какой-либо агрегации.
+// Все поля неизменяемы после создания.
 type IPRaw struct {
-	Time     time.Time
-	IPSrc    net.IP
-	IPDst    net.IP
-	Protocol string
+	Time     time.Time // время захвата пакета
+	IPSrc    net.IP    // исходный IP-адрес (копия из пакета)
+	IPDst    net.IP    // целевой IP-адрес (копия из пакета)
+	Protocol string    // протокол сетевого уровня (TCP, UDP и т.д.)
 }

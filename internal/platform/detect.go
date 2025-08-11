@@ -1,9 +1,9 @@
 package platform
 
 import (
+	"math"
 	"runtime"
 	"strings"
-	"unicode"
 
 	"github.com/google/gopacket/pcap"
 )
@@ -16,20 +16,20 @@ func TelegramProcessName() string {
 	return "Telegram"
 }
 
+// normalize приводит строку к нижнему регистру и заменяет «фигурные» дефисы на обычный.
 func normalize(s string) string {
-	// привести к нижнему и заменить «фигурные» дефисы на обычный
 	s = strings.ToLower(s)
-	s = strings.Map(func(r rune) rune {
+	return strings.Map(func(r rune) rune {
 		switch r {
 		case '‑', '–', '—': // non-breaking, en/em dashes
 			return '-'
 		default:
-			return unicode.ToLower(r)
+			return r
 		}
 	}, s)
-	return s
 }
 
+// hasGoodIPv4 возвращает первый пригодный (не loopback/APIPA/нулевой) IPv4 из списка адресов.
 func hasGoodIPv4(addrs []pcap.InterfaceAddress) (string, bool) {
 	for _, a := range addrs {
 		ip := a.IP
@@ -41,10 +41,7 @@ func hasGoodIPv4(addrs []pcap.InterfaceAddress) (string, bool) {
 			continue
 		}
 		// фильтруем мусор: 169.254.0.0/16 (APIPA), 127.0.0.0/8, 0.0.0.0
-		if v4[0] == 169 && v4[1] == 254 {
-			continue
-		}
-		if v4[0] == 127 || v4[0] == 0 {
+		if (v4[0] == 169 && v4[1] == 254) || v4[0] == 127 || v4[0] == 0 {
 			continue
 		}
 		// нормальный приватный или белый — годится
@@ -53,6 +50,7 @@ func hasGoodIPv4(addrs []pcap.InterfaceAddress) (string, bool) {
 	return "", false
 }
 
+// scoreDesc присваивает "оценку" интерфейсу по описанию: выше — лучше.
 func scoreDesc(desc string) int {
 	desc = normalize(desc)
 
@@ -76,24 +74,23 @@ func scoreDesc(desc string) int {
 	return score
 }
 
+// DefaultInterface выбирает "лучший" pcap‑интерфейс для захвата.
+// Сначала — по эвристике (описание + валидный IPv4), затем — первый подходящий non‑loopback.
 func DefaultInterface() string {
 	devs, err := pcap.FindAllDevs()
 	if err != nil || len(devs) == 0 {
 		return ""
 	}
 
-	// сначала попробуем выбрать лучший по «оценке»
 	bestName := ""
-	bestScore := -1 << 30 // очень маленькое число
+	bestScore := math.MinInt
 
 	for _, d := range devs {
-		// исключим явный loopback по флагу (когда доступен) или по описанию
+		// исключаем loopback по описанию
 		desc := d.Description
-		nd := normalize(desc)
-		if strings.Contains(nd, "loopback") {
+		if strings.Contains(normalize(desc), "loopback") {
 			continue
 		}
-
 		// нужен нормальный IPv4
 		if _, ok := hasGoodIPv4(d.Addresses); !ok {
 			continue
@@ -101,9 +98,10 @@ func DefaultInterface() string {
 
 		s := scoreDesc(desc)
 		// лёгкая коррекция под ОС
+		nd := normalize(desc)
 		switch runtime.GOOS {
 		case "windows":
-			// на винде отдаём чуть больший приоритет ethernet/wifi
+			// на Windows отдаём чуть больший приоритет Ethernet/Wi‑Fi
 			if strings.Contains(nd, "ethernet") || strings.Contains(nd, "wi-fi") || strings.Contains(nd, "wifi") || strings.Contains(nd, "беспровод") {
 				s += 2
 			}
@@ -127,7 +125,7 @@ func DefaultInterface() string {
 		return bestName
 	}
 
-	// если ничего «идеального» не нашлось — берём первый non-loopback с IPv4
+	// если ничего «идеального» не нашлось — берём первый non‑loopback с IPv4
 	for _, d := range devs {
 		if strings.Contains(normalize(d.Description), "loopback") {
 			continue
@@ -146,8 +144,8 @@ func DefaultInterface() string {
 	return devs[0].Name
 }
 
-// Возвращает первый вменяемый IPv4 у указанного pcap-интерфейса.
-// Это важно на Windows: pcap-имя ≠ системное имя, и net.InterfaceByName там мимо.
+// LocalIPv4FromPcap возвращает первый вменяемый IPv4 у указанного pcap‑интерфейса.
+// Важно на Windows: pcap‑имя ≠ системное имя, и net.InterfaceByName там часто мимо.
 func LocalIPv4FromPcap(iface string) (string, bool) {
 	devs, err := pcap.FindAllDevs()
 	if err != nil {

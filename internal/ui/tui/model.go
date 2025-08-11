@@ -30,6 +30,7 @@ type ipStat struct {
 	isTG  bool
 }
 
+// Model — состояние TUI: агрегированная статистика и две таблицы.
 type Model struct {
 	events  <-chan *models.IPRaw
 	localIP string
@@ -43,6 +44,10 @@ type Model struct {
 
 	tgTable    table.Model
 	otherTable table.Model
+
+	// Параметры отображения «иных» IP
+	OtherMaxAge time.Duration // показывать только активные за последние N секунд
+	MinPackets  int           // показывать только IP с количеством пакетов ≥ N
 }
 
 func NewModel(events <-chan *models.IPRaw, localIP string, tgcidr *telegram.IP) Model {
@@ -118,11 +123,11 @@ func (m Model) View() string {
 	var b strings.Builder
 	b.WriteString(title)
 	b.WriteString("\n\n")
-	b.WriteString(sec.Render("Иные IP адреса"))
+	b.WriteString(sec.Render("Иные IP-адреса"))
 	b.WriteString("\n")
 	b.WriteString(m.otherTable.View())
 	b.WriteString("\n\n")
-	b.WriteString(sec.Render("IP датацентров Telegram"))
+	b.WriteString(sec.Render("IP дата-центров Telegram"))
 	b.WriteString("\n")
 	b.WriteString(m.tgTable.View())
 	return b.String()
@@ -146,6 +151,8 @@ func (m *Model) updateStat(p packetMsg) {
 	st.proto = p.Proto
 }
 
+// splitAndSortIPs разбивает адреса на TG/прочие и сортирует по убыванию пакетов,
+// при равенстве — по недавности активности.
 func (m *Model) splitAndSortIPs() (tgIPs, otherIPs []string) {
 	for _, ip := range m.ipOrder {
 		st := m.perIP[ip]
@@ -216,10 +223,12 @@ func (m *Model) colWidthsForBoth(tgIPs, otherIPs []string) []int {
 	return []int{wIP + 2, wPkts + 2, wLast + 2, wProto + 2}
 }
 
+// RefreshTables обновляет таблицы, применяя фильтрацию для «иных» IP.
 func (m *Model) RefreshTables() {
 	tgIPs, otherIPs := m.splitAndSortIPs()
-	widths := m.colWidthsForBoth(tgIPs, otherIPs)
+	otherIPs = m.filterOther(otherIPs)
 
+	widths := m.colWidthsForBoth(tgIPs, otherIPs)
 	cols := []table.Column{
 		{Title: "IP", Width: widths[0]},
 		{Title: "Пакеты", Width: widths[1]},
@@ -242,6 +251,29 @@ func (m *Model) RefreshTables() {
 	}
 	m.tgTable.SetStyles(st)
 	m.otherTable.SetStyles(st)
+}
+
+// filterOther применяет пороги OtherMaxAge/MinPackets к списку «иных» IP.
+func (m *Model) filterOther(ips []string) []string {
+	if len(ips) == 0 {
+		return ips
+	}
+	now := time.Now()
+	out := ips[:0] // фильтруем in-place
+	for _, ip := range ips {
+		st := m.perIP[ip]
+		if st == nil {
+			continue
+		}
+		if m.OtherMaxAge > 0 && now.Sub(st.last) > m.OtherMaxAge {
+			continue
+		}
+		if m.MinPackets > 0 && st.count < m.MinPackets {
+			continue
+		}
+		out = append(out, ip)
+	}
+	return out
 }
 
 func humanSince(t time.Time) string {

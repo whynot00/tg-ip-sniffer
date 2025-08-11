@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -16,65 +16,77 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func getenv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
 func main() {
-	noDump := flag.Bool("no-dump", false, "не сохранять трафик в pcap-файл")
+	// Флаги CLI
+	ifaceFlag := flag.String("iface", "", "сетевой интерфейс для захвата")
+	bpfFlag := flag.String("bpf", "", "BPF‑фильтр (игнорирует автофильтр Telegram)")
+	otherMaxAgeFlag := flag.Int("other-max-age", 90, "максимальный возраст активности (сек) для отображения «Иных IP»")
+	minPacketsFlag := flag.Int("min-packets", 0, "минимальное число пакетов для отображения IP")
+	noDump := flag.Bool("no-dump", false, "не сохранять трафик в pcap‑файл")
+	dumpPath := flag.String("dump-path", "", "путь к pcap-файлу или директории для сохранения дампа")
 	flag.Parse()
 
+	// Проверка Npcap (Windows). На других ОС вернёт nil.
 	if err := platform.CheckNpcap(); err != nil {
-		fmt.Println("Похоже, на этой машине нет Npcap или он работает некорректно.")
-		fmt.Println("Скачайте и установите Npcap (галочка \"WinPcap API-compatible mode\") по ссылке:")
-		fmt.Println("https://nmap.org/npcap/")
-		fmt.Println()
-		fmt.Println("После установки перезапустите эту программу от имени администратора.")
-		fmt.Scanf("")
-		return
+		log.Println("Npcap не установлен или работает некорректно:", err)
+		os.Exit(1)
 	}
 
 	appName := platform.TelegramProcessName()
-	if ok := platform.WaitForProcess(appName, 60*time.Second); !ok {
-		fmt.Println("Telegram не запущен. Захват не стартовал. Запусти Telegram и перезапусти программу.")
-		return
+	// Ждём Telegram только если фильтр не задан вручную.
+	if *bpfFlag == "" {
+		if ok := platform.WaitForProcess(appName, 60*time.Second); !ok {
+			log.Println("Telegram не запущен. Завершаем.")
+			os.Exit(1)
+		}
 	}
 
-	iface := platform.DefaultInterface()
+	iface := *ifaceFlag
 	if iface == "" {
-		fmt.Println("Не удалось определить сетевой интерфейс. Укажи его вручную флагом или в коде.")
-		return
+		iface = platform.DefaultInterface()
+	}
+	if iface == "" {
+		log.Println("Не удалось определить сетевой интерфейс. Укажите его через флаг --iface.")
+		os.Exit(1)
 	}
 
-	ctx := context.Background()
+	// Контекст жизни приложения: отменяется после выхода из UI.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	reader := capture.NewReader(ctx, iface, appName)
 	if !*noDump {
-		reader.EnableDump("") // пустая строка → путь по умолчанию
+		if *dumpPath != "" {
+			reader.EnableDump(*dumpPath)
+		} else {
+			reader.EnableDump("") // путь по умолчанию
+		}
 	}
-
+	if *bpfFlag != "" {
+		reader.SetCustomBPF(*bpfFlag)
+	}
 	go reader.Start(ctx)
 
-	localIP, _ := netutil.GetLocalIP(iface)
+	localIP, err := netutil.GetLocalIP(iface)
+	if err != nil {
+		// Не критично: просто покажем пустое значение в заголовке UI.
+		log.Println("Не удалось получить локальный IP для интерфейса", iface, ":", err)
+	}
 
 	m := tui.NewModel(
 		reader.Events(),
 		localIP,
 		telegram.LoadIP(),
 	)
-
+	m.OtherMaxAge = time.Duration(*otherMaxAgeFlag) * time.Second
+	m.MinPackets = *minPacketsFlag
 	m.RefreshTables()
 
-	// UI
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
-		fmt.Println("run error:", err)
+		log.Println("Ошибка UI:", err)
+		os.Exit(1)
 	}
 
-	// Даем UI успеть завершить вывод (косметика; логика не меняется)
-	time.Sleep(50 * time.Millisecond)
-
-	// time.Sleep(time.Hour)
+	// По выходу из UI отменяем контекст — фоновые горутины завершатся.
+	cancel()
 }
