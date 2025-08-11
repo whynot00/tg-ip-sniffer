@@ -87,12 +87,10 @@ func TestRunLoop_Debounce(t *testing.T) {
 	packets := make(chan gopacket.Packet) // пусто, чтобы не триггерить apply() через пакеты
 	updates := make(chan struct{}, 10)
 
-	// накидаем 5 событий подряд
 	for i := 0; i < 5; i++ {
 		updates <- struct{}{}
 	}
 
-	// завершим цикл чуть позже
 	go func() {
 		time.Sleep(600 * time.Millisecond) // > 500ms окна дебаунса
 		cancel()
