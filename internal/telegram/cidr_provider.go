@@ -9,9 +9,12 @@ import (
 )
 
 const (
-	cidrURL       = "https://core.telegram.org/resources/cidr.txt"
 	httpTimeout   = 5 * time.Second
 	userAgentHead = "tg-ip-sniffer/1.0 (+https://example.local)"
+)
+
+var (
+	cidrURL = "https://core.telegram.org/resources/cidr.txt"
 )
 
 // IP хранит набор Telegram-подсетей для быстрых проверок принадлежности IP.

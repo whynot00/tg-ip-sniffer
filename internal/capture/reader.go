@@ -7,19 +7,38 @@ import (
 	"time"
 
 	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
-	"github.com/google/gopacket/pcapgo"
 
 	"github.com/whynot00/tg-ip-sniffer/internal/filters"
 	"github.com/whynot00/tg-ip-sniffer/internal/models"
 	"github.com/whynot00/tg-ip-sniffer/internal/ports"
 )
 
+type bpfHandle interface {
+	ReadPacketData() ([]byte, gopacket.CaptureInfo, error)
+	SetBPFFilter(string) error
+	LinkType() layers.LinkType
+	Close()
+}
+type dumpWriter interface {
+	WritePacket(ci gopacket.CaptureInfo, data []byte) error
+}
+
+func newReaderForTest(tr *ports.Tracker, h bpfHandle, w dumpWriter) *NetworkReader {
+	return &NetworkReader{
+		tracker:    tr,
+		handle:     h,
+		outCh:      make(chan *models.IPRaw, 16),
+		dumpWriter: w,
+	}
+}
+
 // NetworkReader отвечает за захват пакетов с интерфейса и
 // выдачу их в канал, а также за установку/обновление BPF-фильтра.
 type NetworkReader struct {
 	tracker *ports.Tracker
-	handle  *pcap.Handle
+	handle  bpfHandle
 	outCh   chan *models.IPRaw
 
 	customBPF string // фильтр, заданный пользователем через --bpf
@@ -27,7 +46,7 @@ type NetworkReader struct {
 	// настройки и состояния дампа в файл
 	dumpEnabled bool
 	dumpPath    string
-	dumpWriter  *pcapgo.Writer
+	dumpWriter  dumpWriter
 	dumpFile    *os.File
 }
 
