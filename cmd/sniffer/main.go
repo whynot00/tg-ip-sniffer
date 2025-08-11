@@ -3,7 +3,8 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/whynot00/tg-ip-sniffer/internal/capture"
@@ -16,25 +17,26 @@ import (
 )
 
 func main() {
-	// новые флаги
+	// Флаги CLI
 	ifaceFlag := flag.String("iface", "", "сетевой интерфейс для захвата")
-	bpfFlag := flag.String("bpf", "", "BPF-фильтр (игнорирует автофильтр Telegram)")
-	otherMaxAgeFlag := flag.Int("other-max-age", 90, "максимальный возраст активности (сек) для отображения 'Иных IP'")
+	bpfFlag := flag.String("bpf", "", "BPF‑фильтр (игнорирует автофильтр Telegram)")
+	otherMaxAgeFlag := flag.Int("other-max-age", 90, "максимальный возраст активности (сек) для отображения «Иных IP»")
 	minPacketsFlag := flag.Int("min-packets", 0, "минимальное число пакетов для отображения IP")
-
-	noDump := flag.Bool("no-dump", false, "не сохранять трафик в pcap-файл")
+	noDump := flag.Bool("no-dump", false, "не сохранять трафик в pcap‑файл")
 	flag.Parse()
 
+	// Проверка Npcap (Windows). На других ОС вернёт nil.
 	if err := platform.CheckNpcap(); err != nil {
-		fmt.Println("Npcap не установлен или работает некорректно.")
-		return
+		log.Println("Npcap не установлен или работает некорректно:", err)
+		os.Exit(1)
 	}
 
 	appName := platform.TelegramProcessName()
-	if *bpfFlag == "" { // ждем Telegram только если фильтр не задан вручную
+	// Ждём Telegram только если фильтр не задан вручную.
+	if *bpfFlag == "" {
 		if ok := platform.WaitForProcess(appName, 60*time.Second); !ok {
-			fmt.Println("Telegram не запущен. Завершаем.")
-			return
+			log.Println("Telegram не запущен. Завершаем.")
+			os.Exit(1)
 		}
 	}
 
@@ -43,23 +45,28 @@ func main() {
 		iface = platform.DefaultInterface()
 	}
 	if iface == "" {
-		fmt.Println("Не удалось определить интерфейс.")
-		return
+		log.Println("Не удалось определить сетевой интерфейс. Укажите его через флаг --iface.")
+		os.Exit(1)
 	}
 
-	ctx := context.Background()
+	// Контекст жизни приложения: отменяется после выхода из UI.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	reader := capture.NewReader(ctx, iface, appName)
 	if !*noDump {
-		reader.EnableDump("")
+		reader.EnableDump("") // пустой путь → captures/tg-YYYYMMDD-HHMMSS.pcap
 	}
 	if *bpfFlag != "" {
-		reader.SetCustomBPF(*bpfFlag) // надо добавить метод в Reader
+		reader.SetCustomBPF(*bpfFlag)
 	}
-
 	go reader.Start(ctx)
 
-	localIP, _ := netutil.GetLocalIP(iface)
+	localIP, err := netutil.GetLocalIP(iface)
+	if err != nil {
+		// Не критично: просто покажем пустое значение в заголовке UI.
+		log.Println("Не удалось получить локальный IP для интерфейса", iface, ":", err)
+	}
 
 	m := tui.NewModel(
 		reader.Events(),
@@ -68,11 +75,13 @@ func main() {
 	)
 	m.OtherMaxAge = time.Duration(*otherMaxAgeFlag) * time.Second
 	m.MinPackets = *minPacketsFlag
-
 	m.RefreshTables()
 
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
-		fmt.Println("run error:", err)
+		log.Println("Ошибка UI:", err)
+		os.Exit(1)
 	}
-	time.Sleep(50 * time.Millisecond)
+
+	// По выходу из UI отменяем контекст — фоновые горутины завершатся.
+	cancel()
 }
