@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -23,6 +24,8 @@ func getenv(key, def string) string {
 }
 
 func main() {
+	noDump := flag.Bool("no-dump", false, "не сохранять трафик в pcap-файл")
+	flag.Parse()
 
 	if err := platform.CheckNpcap(); err != nil {
 		fmt.Println("Похоже, на этой машине нет Npcap или он работает некорректно.")
@@ -30,6 +33,7 @@ func main() {
 		fmt.Println("https://nmap.org/npcap/")
 		fmt.Println()
 		fmt.Println("После установки перезапустите эту программу от имени администратора.")
+		fmt.Scanf("")
 		return
 	}
 
@@ -48,6 +52,10 @@ func main() {
 	ctx := context.Background()
 
 	reader := capture.NewReader(ctx, iface, appName)
+	if !*noDump {
+		reader.EnableDump("") // пустая строка → путь по умолчанию
+	}
+
 	go reader.Start(ctx)
 
 	localIP, _ := netutil.GetLocalIP(iface)

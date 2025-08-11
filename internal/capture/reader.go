@@ -2,10 +2,13 @@ package capture
 
 import (
 	"context"
+	"log"
+	"os"
 	"time"
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/pcap"
+	"github.com/google/gopacket/pcapgo"
 
 	"github.com/whynot00/tg-ip-sniffer/internal/filters"
 	"github.com/whynot00/tg-ip-sniffer/internal/models"
@@ -16,6 +19,11 @@ type NetworkReader struct {
 	tracker *ports.Tracker
 	handle  *pcap.Handle
 	outCh   chan *models.IPRaw
+
+	dumpEnabled bool
+	dumpPath    string
+	dumpWriter  *pcapgo.Writer
+	dumpFile    *os.File
 }
 
 func NewReader(ctx context.Context, ifaceName, appName string) *NetworkReader {
@@ -54,6 +62,13 @@ func (r *NetworkReader) setBPF() error {
 func (r *NetworkReader) Events() <-chan *models.IPRaw { return r.outCh }
 
 func (r *NetworkReader) Start(ctx context.Context) {
+	if err := r.mustInitDumpWriter(); err != nil {
+		log.Printf("pcap dump init error: %v", err)
+	} else if r.dumpEnabled && r.dumpPath != "" {
+		log.Printf("pcap dump to: %s", r.dumpPath)
+	}
+	defer r.closeDump()
+
 	updateCh := r.tracker.Updates()
 	packetSource := gopacket.NewPacketSource(r.handle, r.handle.LinkType())
 	packets := packetSource.Packets()
@@ -89,6 +104,11 @@ func (r *NetworkReader) Start(ctx context.Context) {
 			if packet == nil {
 				close(r.outCh)
 				return
+			}
+
+			if r.dumpWriter != nil {
+				ci := packet.Metadata().CaptureInfo
+				_ = r.dumpWriter.WritePacket(ci, packet.Data())
 			}
 
 			if ipInfo := extractIPInfo(packet); ipInfo != nil {

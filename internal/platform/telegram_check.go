@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/shirou/gopsutil/process"
@@ -31,6 +32,8 @@ func WaitForProcess(name string, timeout time.Duration) bool {
 		if time.Now().After(deadline) {
 			return false
 		}
+
+		fmt.Println("Telegram не запущен.")
 		<-tick.C
 	}
 }
