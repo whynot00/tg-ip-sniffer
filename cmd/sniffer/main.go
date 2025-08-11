@@ -33,13 +33,17 @@ func main() {
 		return
 	}
 
+	appName := platform.TelegramProcessName()
+	if ok := platform.WaitForProcess(appName, 60*time.Second); !ok {
+		fmt.Println("Telegram не запущен. Захват не стартовал. Запусти Telegram и перезапусти программу.")
+		return
+	}
+
 	iface := platform.DefaultInterface()
 	if iface == "" {
 		fmt.Println("Не удалось определить сетевой интерфейс. Укажи его вручную флагом или в коде.")
 		return
 	}
-
-	appName := platform.TelegramProcessName()
 
 	ctx := context.Background()
 

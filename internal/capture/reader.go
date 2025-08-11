@@ -24,11 +24,21 @@ func NewReader(ctx context.Context, ifaceName, appName string) *NetworkReader {
 		outCh:   make(chan *models.IPRaw, 1024),
 	}
 	var err error
+
+	go r.tracker.StartPolling(ctx)
+
+	for {
+		if len(r.tracker.Snapshot()) > 0 {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
 	r.handle, err = pcap.OpenLive(ifaceName, 1600, true, pcap.BlockForever)
 	if err != nil {
 		panic(err)
 	}
-	go r.tracker.StartPolling(ctx)
+
 	return r
 }
 
