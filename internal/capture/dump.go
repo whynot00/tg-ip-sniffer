@@ -24,17 +24,22 @@ func defaultDumpPath() string {
 	return filepath.Join(defaultDumpDir, fmt.Sprintf("%s-%s.pcap", defaultDumpPrefix, ts))
 }
 
-// EnableDump включает запись дампа. Путь может быть пустым/"."
-// — тогда будет выбран путь по умолчанию.
+// EnableDump включает запись дампа. Путь может быть:
+//   - пустой или "." → используем путь по умолчанию;
+//   - директорией (существующей или новой) → файл создадим внутри неё;
+//   - конкретным файлом → создадим именно его.
 func (r *NetworkReader) EnableDump(path string) {
-	// не делаем I/O здесь — только сохраняем пожелание
+	// только сохраняем настройку, без I/O
 	r.dumpEnabled = true
 	r.dumpPath = filepath.Clean(path)
 }
 
 // initDumpWriter создаёт pcap‑writer после успешного OpenLive.
-// Если указан путь к директории — создаст файл внутри неё.
-// Если путь пустой/"." — будет выбран путь по умолчанию.
+// Логика путей:
+//   - "" или "." → defaultDumpPath()
+//   - существующая директория → кладём файл внутрь
+//   - несуществующий путь без расширения → считаем директорией, создаём и кладём файл внутрь
+//   - иначе → считаем файлом, создаём родительскую директорию при необходимости
 func (r *NetworkReader) initDumpWriter() error {
 	if !r.dumpEnabled || r.handle == nil {
 		return nil
@@ -44,14 +49,22 @@ func (r *NetworkReader) initDumpWriter() error {
 	case "", ".":
 		r.dumpPath = defaultDumpPath()
 	default:
-		if st, err := os.Stat(r.dumpPath); err == nil && st.IsDir() {
-			// указана директория — кладём файл внутрь
+		st, err := os.Stat(r.dumpPath)
+		if err == nil && st.IsDir() {
+			// уже директория
+			filename := fmt.Sprintf("%s-%s.pcap", defaultDumpPrefix, time.Now().Format("20060102-150405"))
+			r.dumpPath = filepath.Join(r.dumpPath, filename)
+		} else if os.IsNotExist(err) && filepath.Ext(r.dumpPath) == "" {
+			// не существует и без расширения → трактуем как директорию
+			if mkErr := os.MkdirAll(r.dumpPath, 0o755); mkErr != nil {
+				return fmt.Errorf("mkdumpdir: %w", mkErr)
+			}
 			filename := fmt.Sprintf("%s-%s.pcap", defaultDumpPrefix, time.Now().Format("20060102-150405"))
 			r.dumpPath = filepath.Join(r.dumpPath, filename)
 		} else {
-			// указан файл — гарантируем наличие родительской директории
-			if err := os.MkdirAll(filepath.Dir(r.dumpPath), 0o755); err != nil {
-				return fmt.Errorf("mkdumpdir: %w", err)
+			// файл: гарантируем наличие родительской директории
+			if mkErr := os.MkdirAll(filepath.Dir(r.dumpPath), 0o755); mkErr != nil {
+				return fmt.Errorf("mkdumpdir: %w", mkErr)
 			}
 		}
 	}

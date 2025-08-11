@@ -23,6 +23,7 @@ func main() {
 	otherMaxAgeFlag := flag.Int("other-max-age", 90, "максимальный возраст активности (сек) для отображения «Иных IP»")
 	minPacketsFlag := flag.Int("min-packets", 0, "минимальное число пакетов для отображения IP")
 	noDump := flag.Bool("no-dump", false, "не сохранять трафик в pcap‑файл")
+	dumpPath := flag.String("dump-path", "", "путь к pcap-файлу или директории для сохранения дампа")
 	flag.Parse()
 
 	// Проверка Npcap (Windows). На других ОС вернёт nil.
@@ -55,7 +56,11 @@ func main() {
 
 	reader := capture.NewReader(ctx, iface, appName)
 	if !*noDump {
-		reader.EnableDump("") // пустой путь → captures/tg-YYYYMMDD-HHMMSS.pcap
+		if *dumpPath != "" {
+			reader.EnableDump(*dumpPath)
+		} else {
+			reader.EnableDump("") // путь по умолчанию
+		}
 	}
 	if *bpfFlag != "" {
 		reader.SetCustomBPF(*bpfFlag)
