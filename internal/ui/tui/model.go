@@ -43,6 +43,9 @@ type Model struct {
 
 	tgTable    table.Model
 	otherTable table.Model
+
+	OtherMaxAge time.Duration
+	MinPackets  int
 }
 
 func NewModel(events <-chan *models.IPRaw, localIP string, tgcidr *telegram.IP) Model {
@@ -126,6 +129,18 @@ func (m Model) View() string {
 	b.WriteString("\n")
 	b.WriteString(m.tgTable.View())
 	return b.String()
+}
+
+// Оставляем только те IP, у которых last свежее maxAge
+func (m *Model) filterRecent(ips []string, maxAge time.Duration) []string {
+	now := time.Now()
+	out := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		if st := m.perIP[ip]; st != nil && now.Sub(st.last) < maxAge {
+			out = append(out, ip)
+		}
+	}
+	return out
 }
 
 func (m *Model) updateStat(p packetMsg) {
@@ -218,8 +233,33 @@ func (m *Model) colWidthsForBoth(tgIPs, otherIPs []string) []int {
 
 func (m *Model) RefreshTables() {
 	tgIPs, otherIPs := m.splitAndSortIPs()
-	widths := m.colWidthsForBoth(tgIPs, otherIPs)
 
+	// фильтрация "иных"
+	if m.OtherMaxAge > 0 {
+		now := time.Now()
+		filtered := make([]string, 0, len(otherIPs))
+		for _, ip := range otherIPs {
+			st := m.perIP[ip]
+			if st == nil {
+				continue
+			}
+			if now.Sub(st.last) <= m.OtherMaxAge {
+				filtered = append(filtered, ip)
+			}
+		}
+		otherIPs = filtered
+	}
+	if m.MinPackets > 0 {
+		filtered := make([]string, 0, len(otherIPs))
+		for _, ip := range otherIPs {
+			if st := m.perIP[ip]; st != nil && st.count >= m.MinPackets {
+				filtered = append(filtered, ip)
+			}
+		}
+		otherIPs = filtered
+	}
+
+	widths := m.colWidthsForBoth(tgIPs, otherIPs)
 	cols := []table.Column{
 		{Title: "IP", Width: widths[0]},
 		{Title: "Пакеты", Width: widths[1]},

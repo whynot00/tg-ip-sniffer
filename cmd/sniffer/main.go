@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/whynot00/tg-ip-sniffer/internal/capture"
@@ -16,36 +15,35 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func getenv(key, def string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return def
-}
-
 func main() {
+	// новые флаги
+	ifaceFlag := flag.String("iface", "", "сетевой интерфейс для захвата")
+	bpfFlag := flag.String("bpf", "", "BPF-фильтр (игнорирует автофильтр Telegram)")
+	otherMaxAgeFlag := flag.Int("other-max-age", 90, "максимальный возраст активности (сек) для отображения 'Иных IP'")
+	minPacketsFlag := flag.Int("min-packets", 0, "минимальное число пакетов для отображения IP")
+
 	noDump := flag.Bool("no-dump", false, "не сохранять трафик в pcap-файл")
 	flag.Parse()
 
 	if err := platform.CheckNpcap(); err != nil {
-		fmt.Println("Похоже, на этой машине нет Npcap или он работает некорректно.")
-		fmt.Println("Скачайте и установите Npcap (галочка \"WinPcap API-compatible mode\") по ссылке:")
-		fmt.Println("https://nmap.org/npcap/")
-		fmt.Println()
-		fmt.Println("После установки перезапустите эту программу от имени администратора.")
-		fmt.Scanf("")
+		fmt.Println("Npcap не установлен или работает некорректно.")
 		return
 	}
 
 	appName := platform.TelegramProcessName()
-	if ok := platform.WaitForProcess(appName, 60*time.Second); !ok {
-		fmt.Println("Telegram не запущен. Захват не стартовал. Запусти Telegram и перезапусти программу.")
-		return
+	if *bpfFlag == "" { // ждем Telegram только если фильтр не задан вручную
+		if ok := platform.WaitForProcess(appName, 60*time.Second); !ok {
+			fmt.Println("Telegram не запущен. Завершаем.")
+			return
+		}
 	}
 
-	iface := platform.DefaultInterface()
+	iface := *ifaceFlag
 	if iface == "" {
-		fmt.Println("Не удалось определить сетевой интерфейс. Укажи его вручную флагом или в коде.")
+		iface = platform.DefaultInterface()
+	}
+	if iface == "" {
+		fmt.Println("Не удалось определить интерфейс.")
 		return
 	}
 
@@ -53,7 +51,10 @@ func main() {
 
 	reader := capture.NewReader(ctx, iface, appName)
 	if !*noDump {
-		reader.EnableDump("") // пустая строка → путь по умолчанию
+		reader.EnableDump("")
+	}
+	if *bpfFlag != "" {
+		reader.SetCustomBPF(*bpfFlag) // надо добавить метод в Reader
 	}
 
 	go reader.Start(ctx)
@@ -65,16 +66,13 @@ func main() {
 		localIP,
 		telegram.LoadIP(),
 	)
+	m.OtherMaxAge = time.Duration(*otherMaxAgeFlag) * time.Second
+	m.MinPackets = *minPacketsFlag
 
 	m.RefreshTables()
 
-	// UI
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		fmt.Println("run error:", err)
 	}
-
-	// Даем UI успеть завершить вывод (косметика; логика не меняется)
 	time.Sleep(50 * time.Millisecond)
-
-	// time.Sleep(time.Hour)
 }

@@ -2,6 +2,7 @@ package capture
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -19,6 +20,8 @@ type NetworkReader struct {
 	tracker *ports.Tracker
 	handle  *pcap.Handle
 	outCh   chan *models.IPRaw
+
+	customBPF string
 
 	dumpEnabled bool
 	dumpPath    string
@@ -48,6 +51,10 @@ func NewReader(ctx context.Context, ifaceName, appName string) *NetworkReader {
 	}
 
 	return r
+}
+
+func (r *NetworkReader) SetCustomBPF(filter string) {
+	r.customBPF = filter
 }
 
 func (r *NetworkReader) setBPF() error {
@@ -81,7 +88,19 @@ func (r *NetworkReader) Start(ctx context.Context) {
 		if !dirty {
 			return
 		}
-		_ = r.setBPF() // прежнее поведение — без строгой обработки
+
+		if r.customBPF != "" {
+			// кастомный фильтр задан флагом --bpf
+			if err := r.handle.SetBPFFilter(r.customBPF); err != nil {
+				fmt.Println("SetBPFFilter error:", err)
+			} else {
+				fmt.Println("Custom BPF applied:", r.customBPF)
+			}
+		} else {
+			// твоя старая логика
+			_ = r.setBPF()
+		}
+
 		dirty = false
 	}
 
@@ -98,6 +117,7 @@ func (r *NetworkReader) Start(ctx context.Context) {
 			debounce.Reset(500 * time.Millisecond)
 
 		case <-debounce.C:
+
 			apply()
 
 		case packet := <-packets:
