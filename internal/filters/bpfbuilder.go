@@ -6,9 +6,11 @@ import (
 	"strings"
 )
 
+const maxPort = 65535
+
 // BuildPorts собирает BPF-фильтр по списку портов.
 // Например: []int{443, 80, 80} -> "(tcp or udp) and (port 80 or port 443)".
-// Порты сортируются и дубли удаляются.
+// Порты сортируются, дубли удаляются и игнорируются значения вне диапазона 1-65535.
 func BuildPorts(ports []int) string {
 	if len(ports) == 0 {
 		return ""
@@ -17,7 +19,7 @@ func BuildPorts(ports []int) string {
 	// удаляем дубликаты и сортируем
 	uniq := make(map[int]struct{}, len(ports))
 	for _, p := range ports {
-		if p > 0 {
+		if p > 0 && p <= maxPort {
 			uniq[p] = struct{}{}
 		}
 	}
