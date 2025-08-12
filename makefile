@@ -10,7 +10,6 @@ VERSION        := $(shell cat VERSION 2>/dev/null)
 BUMP           ?= patch
 
 # Встраиваем версию в бинарник (если в main есть: var version = "dev")
-# ИЛИ убери LDFLAGS, если не используешь переменную main.version
 LDFLAGS        := -s -w -X 'main.version=$(VERSION)'
 
 # Для воспроизводимых билдов лучше выключить CGO
@@ -65,13 +64,15 @@ release: check-git
 		}' VERSION \
 	); \
 	echo $$NEW_VERSION > VERSION; \
-	echo "Новая версия: v$$NEW_VERSION"; \
 	git add VERSION; \
 	git commit -m "chore: bump version to v$$NEW_VERSION"; \
 	git tag -a v$$NEW_VERSION -m "v$$NEW_VERSION"; \
 	git push && git push --tags; \
 	$(MAKE) build VERSION=$$NEW_VERSION LDFLAGS="-s -w -X 'main.version=$$NEW_VERSION'"; \
-	echo "📦 Релиз собран: $(DIST)/ (v$$NEW_VERSION)"
+	git add $(DIST)/*; \
+	git commit -m "build: release binaries for v$$NEW_VERSION" || true; \
+	git push; \
+	echo "📦 Релиз собран и закоммичен: v$$NEW_VERSION"
 
 # Только поднять версию локально (без тега/пуша)
 bump:
