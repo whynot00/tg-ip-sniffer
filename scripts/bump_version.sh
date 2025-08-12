@@ -20,7 +20,7 @@ build_target() {
   local out="${DIST}/${APP_NAME}_v${version}_${os}_${arch}${ext}"
 
   echo "→ build ${os}/${arch} -> ${out}"
-  GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 \
+  GOOS="$os" GOARCH="$arch" CGO_ENABLED=1 \
     go build -trimpath -ldflags "${LDFLAGS_EXTRA} -X main.version=${version}" \
     -o "$out" "$ENTRYPOINT"
 }
