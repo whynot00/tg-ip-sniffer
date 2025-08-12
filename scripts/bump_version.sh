@@ -4,7 +4,7 @@ set -euo pipefail
 # --- Settings ---
 APP_NAME="sniffer"            # базовое имя бинарника
 ENTRYPOINT="./cmd/sniffer"    # путь к main пакету
-DIST="dist"
+DIST="bin"
 LDFLAGS_EXTRA="-s -w"         # можно добавить свои флаги
 
 VERSION_FILE="VERSION"
