@@ -1,0 +1,90 @@
+name: release
+on:
+  push:
+    tags: ["v*.*.*"]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS
+          - os: macos-latest
+            goos: darwin
+            arches: ["arm64","amd64"]
+          # Linux
+          - os: ubuntu-latest
+            goos: linux
+            arches: ["amd64","arm64"]
+          # Windows
+          - os: windows-latest
+            goos: windows
+            arches: ["amd64","arm64"]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+
+      # deps
+      - name: Install deps (Linux)
+        if: matrix.goos == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+
+      - name: Install deps (macOS)
+        if: matrix.goos == 'darwin'
+        run: echo "libpcap есть в системе"
+
+      - name: Install deps (Windows)
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        run: |
+          choco install -y npcap npcap-sdk
+          # Chocolatey обычно ставит SDK в C:\tools\npcap-sdk
+          $env:NPCAP_SDK = "C:\tools\npcap-sdk"
+          echo "NPCAP_SDK=$env:NPCAP_SDK" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          for arch in ${ARCHES:-${{ join(matrix.arches, ' ') }}}; do
+            outfile="tg-ip-sniffer-${{ matrix.goos }}-$arch"
+            ext=""
+            if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
+            outfile="$outfile$ext"
+
+            # Windows: укажем заголовки/библиотеки Npcap SDK
+            if [ "${{ matrix.goos }}" = "windows" ]; then
+              if [ "$arch" = "arm64" ]; then libdir="ARM64"; else libdir="x64"; fi
+              export CGO_CFLAGS="-I${NPCAP_SDK:-C:\\tools\\npcap-sdk}\\Include"
+              export CGO_LDFLAGS="-L${NPCAP_SDK:-C:\\tools\\npcap-sdk}\\Lib\\$libdir -lwpcap -lPacket"
+            fi
+
+            CGO_ENABLED=1 GOOS=${{ matrix.goos }} GOARCH=$arch \
+              go build -trimpath -ldflags="-s -w" -o "dist/$outfile" ./cmd/sniffer
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tg-ip-sniffer-${{ matrix.goos }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
