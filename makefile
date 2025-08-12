@@ -1,21 +1,17 @@
 # -------- Settings --------
-APP_NAME       := sniffer                   # базовое имя бинарника
-ENTRYPOINT     := ./cmd/sniffer             # путь к main пакету
+APP_NAME       := sniffer
+ENTRYPOINT     := ./cmd/sniffer
 DIST           := dist
 
-# Версия из файла VERSION
 VERSION        := $(shell cat VERSION 2>/dev/null)
-
-# По умолчанию поднимаем patch; можно: make release BUMP=minor|major
 BUMP           ?= patch
 
-# Встраиваем версию в бинарник (если в main есть: var version = "dev")
-LDFLAGS        := -s -w -X 'main.version=$(VERSION)'
+# Без одинарных кавычек — шёллу нечему «ломаться»
+LDFLAGS        := -s -w -X main.version=$(VERSION)
 
-# Для воспроизводимых билдов лучше выключить CGO
 CGO_ENABLED    := 0
+SHELL          := /bin/sh
 
-# -------- Targets --------
 .PHONY: all build clean release bump tag push check-git
 
 all: build
@@ -32,7 +28,6 @@ mkdist:
 clean:
 	@rm -rf $(DIST)
 
-# ---- Platform builds ----
 build-darwin-amd64:
 	@echo "→ darwin/amd64 v$(VERSION)"
 	@GOOS=darwin GOARCH=amd64 CGO_ENABLED=$(CGO_ENABLED) \
@@ -51,7 +46,6 @@ build-windows-amd64:
 		go build -trimpath -ldflags "$(LDFLAGS)" \
 		-o "$(DIST)/$(APP_NAME)_v$(VERSION)_windows_amd64.exe" $(ENTRYPOINT)
 
-# ---- Release flow ----
 release: check-git
 	@echo "Текущая версия: v$(VERSION)"
 	@NEW_VERSION=$$( \
@@ -68,13 +62,12 @@ release: check-git
 	git commit -m "chore: bump version to v$$NEW_VERSION"; \
 	git tag -a v$$NEW_VERSION -m "v$$NEW_VERSION"; \
 	git push && git push --tags; \
-	$(MAKE) build VERSION=$$NEW_VERSION LDFLAGS="-s -w -X 'main.version=$$NEW_VERSION'"; \
+	$(MAKE) build VERSION=$$NEW_VERSION LDFLAGS="-s -w -X main.version=$$NEW_VERSION"; \
 	git add $(DIST)/*; \
 	git commit -m "build: release binaries for v$$NEW_VERSION" || true; \
 	git push; \
 	echo "📦 Релиз собран и закоммичен: v$$NEW_VERSION"
 
-# Только поднять версию локально (без тега/пуша)
 bump:
 	@NEW_VERSION=$$( \
 		awk -F. -v b=$(BUMP) '{
@@ -88,7 +81,6 @@ bump:
 	echo $$NEW_VERSION > VERSION; \
 	echo "v$$NEW_VERSION"
 
-# Поставить тег на текущую версию и запушить (без изменения VERSION)
 tag: check-git
 	@test -n "$(VERSION)" || (echo "Файл VERSION пустой"; exit 1)
 	git tag -a v$(VERSION) -m "v$(VERSION)"
@@ -99,7 +91,6 @@ push:
 	git push && git push --tags
 
 check-git:
-	@# рабочее дерево должно быть чистым
 	@git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "Не в git-репозитории"; exit 1; }
 	@git diff --quiet && git diff --cached --quiet || { \
 		echo "Есть незафиксированные изменения. Закоммить их или stash перед release."; exit 1; }
