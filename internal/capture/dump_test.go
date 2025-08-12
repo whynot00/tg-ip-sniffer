@@ -5,7 +5,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 )
+
+type mockDumpHandle struct{}
+
+func (m *mockDumpHandle) ReadPacketData() ([]byte, gopacket.CaptureInfo, error) {
+	return nil, gopacket.CaptureInfo{}, nil
+}
+
+func (m *mockDumpHandle) SetBPFFilter(string) error { return nil }
+func (m *mockDumpHandle) LinkType() layers.LinkType { return layers.LinkTypeEthernet }
+func (m *mockDumpHandle) Close()                    {}
 
 func TestDefaultDumpPath(t *testing.T) {
 	p := defaultDumpPath()
@@ -37,14 +50,20 @@ func TestInitDumpWriter_PathResolution_Dir(t *testing.T) {
 	r := &NetworkReader{}
 	r.dumpEnabled = true
 	r.dumpPath = td // укажем существующую директорию
-	// подложим минимально нужное: handle с LinkType() — но pcap.Handle реальный.
-	// Обойдёмся: не зовём initDumpWriter, а проверим предполагаемый join.
-	// (Подробный тест initDumpWriter потребует настоящего pcap.OpenLive).
-	if !strings.HasPrefix(td, r.dumpPath) {
-		t.Fatal("sanity")
+	r.handle = &mockDumpHandle{}
+
+	if err := r.initDumpWriter(); err != nil {
+		t.Fatalf("initDumpWriter: %v", err)
 	}
-	// sanity: директория существует
-	if _, err := os.Stat(td); err != nil {
-		t.Fatal(err)
+	defer func() {
+		r.closeDump()
+		_ = os.Remove(r.dumpPath)
+	}()
+
+	if filepath.Dir(r.dumpPath) != td {
+		t.Fatalf("dumpPath %q not in temp dir %q", r.dumpPath, td)
+	}
+	if _, err := os.Stat(r.dumpPath); err != nil {
+		t.Fatalf("dump file not created: %v", err)
 	}
 }
